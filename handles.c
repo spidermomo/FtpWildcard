@@ -331,8 +331,7 @@ void ftp_retr(Command *cmd, State *state)
       /* Passive mode */
       if(state->mode == SERVER){
 
-		  char ext[BSIZE];
-		  memset(ext, '\0', sizeof(char)*BSIZE);
+		  char ext[BSIZE] = {0};
 		  int mode = find_wildcard_mode(cmd->arg, ext);
 
 		  char *file_name;
@@ -431,49 +430,96 @@ void ftp_stor(Command *cmd, State *state)
     int res = 1;
     const int buff_size = 8192;
 
-    FILE *fp = fopen(cmd->arg,"w");
+	char ext[BSIZE] = {0};
+	int mode = find_wildcard_mode(cmd->arg, ext);
 
-    if(fp==NULL){
-      /* TODO: write status message here! */
-      perror("ftp_stor:fopen");
-      state->message = "550 No such file or directory.\n";
-    }else if(state->logged_in){
-      if(!(state->mode==SERVER)){
-        state->message = "550 Please use PASV instead of PORT.\n";
-      }
-      /* Passive mode */
-      else{
-        fd = fileno(fp);
-        connection = accept_connection(state->sock_pasv);
-        close(state->sock_pasv);
-        if(pipe(pipefd)==-1)perror("ftp_stor: pipe");
+	char *file_name;
 
-        state->message = "125 Data connection already open; transfer starting.\n";
-        write_state(state);
+	DIR *dir = opendir(".");	//open current direcotry
 
-        /* Using splice function for file receiving.
-         * The splice() system call first appeared in Linux 2.6.17.
-         */
+	if(dir)
+	{
+		char *file_name;
+		do {
 
-        while ((res = splice(connection, 0, pipefd[1], NULL, buff_size, SPLICE_F_MORE | SPLICE_F_MOVE))>0){
-          splice(pipefd[0], NULL, fd, 0, buff_size, SPLICE_F_MORE | SPLICE_F_MOVE);
-        }
+			if(mode == NOT_WILDCARD)
+				file_name = cmd->arg;
+			else
+			{
+				struct dirent *ent;
+				ent = readdir(dir);
+				if(!ent)
+					break;
 
-        /* TODO: signal with ABOR command to exit */
+				if(ent->d_type & DT_DIR)
+					continue;
+				if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+					continue;
 
-        /* Internal error */
-        if(res==-1){
-          perror("ftp_stor: splice");
-          exit(EXIT_SUCCESS);
-        }else{
-          state->message = "226 File send OK.\n";
-        }
-        close(connection);
-        close(fd);
-      }
-    }else{
-      state->message = "530 Please login with USER and PASS.\n";
-    }
+				if(mode == SAME_EXTENTION_FILES)
+				{
+					if(!is_same_extension(ent->d_name, ext))
+						continue;
+					file_name = ent->d_name;
+				}
+				else if(mode == ALL_EXTENTION_FILES)
+				{
+					if(!is_extension(ent->d_name))
+						file_name = ent->d_name;
+				}
+				else
+					file_name = ent->d_name;
+			}
+
+			FILE *fp = fopen(file_name,"w");
+
+			if(fp==NULL){
+			  /* TODO: write status message here! */
+			  perror("ftp_stor:fopen");
+			  state->message = "550 No such file or directory.\n";
+			}else if(state->logged_in){
+			  if(!(state->mode==SERVER)){
+				state->message = "550 Please use PASV instead of PORT.\n";
+
+				fclose(fp);
+				break;
+			  }
+			  /* Passive mode */
+			  else{
+				
+				fd = fileno(fp);
+				connection = accept_connection(state->sock_pasv);
+				close(state->sock_pasv);
+				if(pipe(pipefd)==-1)perror("ftp_stor: pipe");
+
+				state->message = "125 Data connection already open; transfer starting.\n";
+				write_state(state);
+
+				/* Using splice function for file receiving.
+				 * The splice() system call first appeared in Linux 2.6.17.
+				 */
+
+				while ((res = splice(connection, 0, pipefd[1], NULL, buff_size, SPLICE_F_MORE | SPLICE_F_MOVE))>0){
+				  splice(pipefd[0], NULL, fd, 0, buff_size, SPLICE_F_MORE | SPLICE_F_MOVE);
+				}
+
+				/* TODO: signal with ABOR command to exit */
+
+				/* Internal error */
+				if(res==-1){
+				  perror("ftp_stor: splice");
+				  exit(EXIT_SUCCESS);
+				}else{
+				  state->message = "226 File send OK.\n";
+				}
+				close(connection);
+				close(fd);
+			  }
+			}else{
+			  state->message = "530 Please login with USER and PASS.\n";
+			}
+		}while(mode > NOT_WILDCARD)
+	}
     close(connection);
     write_state(state);
     exit(EXIT_SUCCESS);
