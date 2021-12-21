@@ -330,29 +330,82 @@ void ftp_retr(Command *cmd, State *state)
 
       /* Passive mode */
       if(state->mode == SERVER){
-        if(access(cmd->arg,R_OK)==0 && (fd = open(cmd->arg,O_RDONLY))){
-          fstat(fd,&stat_buf);
-          
-          state->message = "150 Opening BINARY mode data connection.\n";
-          
-          write_state(state);
-          
-          connection = accept_connection(state->sock_pasv);
-          close(state->sock_pasv);
-          if(sent_total = sendfile(connection, fd, &offset, stat_buf.st_size)){
-            
-            if(sent_total != stat_buf.st_size){
-              perror("ftp_retr:sendfile");
-              exit(EXIT_SUCCESS);
-            }
 
-            state->message = "226 File send OK.\n";
-          }else{
-            state->message = "550 Failed to read file.\n";
-          }
-        }else{
-          state->message = "550 Failed to get file\n";
-        }
+		  char ext[BSIZE];
+		  memset(ext, '\0', sizeof(char)*BSIZE);
+		  int mode = find_wildcard_mode(cmd->arg, ext);
+
+		  char *file_name;
+
+		  DIR *dir = opendir(".");	//open current direcotry
+
+		  if(dir)
+		  {
+			  struct dirent *ent;
+
+			  do {
+				  if(mode == NOT_WILDCARD)
+					  file_name = cmd->arg;
+				  else
+				  {
+					  ent = readdir(dir);
+					  if(!ent)
+						  break;
+
+					  if(ent->d_type & DT_DIR)
+						  continue;
+					  if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+						  continue;
+
+					  if(mode == SAME_EXTENTION_FILES)
+					  {
+						  if(!is_same_extension(ent->d_name, ext))
+							  continue;
+						  file_name = ent->d_name;
+					  }
+					  else if(mode == ALL_EXTENTION_FILES)
+					  {
+						  if(!is_extension(ent->d_name))
+							  file_name = ent->d_name;
+					  }
+					  else
+						  file_name = ent->d_name;
+				  }				  
+
+				  if(access(file_name,R_OK)==0 && (fd = open(file_name,O_RDONLY))){
+					  fstat(fd,&stat_buf);
+		          
+					  state->message = "150 Opening BINARY mode data connection.\n";
+					   
+					  write_state(state);
+		          
+					  connection = accept_connection(state->sock_pasv);
+					  close(state->sock_pasv);
+					  if(sent_total = sendfile(connection, fd, &offset, stat_buf.st_size)){
+		            
+						  if(sent_total != stat_buf.st_size){
+							  perror("ftp_retr:sendfile");
+							  exit(EXIT_SUCCESS);
+						  }
+
+						  state->message = "226 File send OK.\n";
+					  }else{
+						  state->message = "550 Failed to read file.\n";
+					  }
+
+					  close(fd);
+				  }else{
+					  state->message = "550 Failed to get file\n";
+				  }
+				   
+			  }while(mode > NOT_WILDCARD);
+
+			  closedir(dir);
+		  }
+		  else
+		  {
+			   state->message = "550 Failed to get file\n";
+		  }
       }else{
         state->message = "550 Please use PASV instead of PORT.\n";
       }
@@ -360,7 +413,6 @@ void ftp_retr(Command *cmd, State *state)
       state->message = "530 Please login with USER and PASS.\n";
     }
 
-    close(fd);
     close(connection);
     write_state(state);
     exit(EXIT_SUCCESS);
@@ -551,3 +603,61 @@ void str_perm(int perm, char *str_perm)
 
   }
 }
+
+/**Find wildcard mode**/
+int find_wildcard_mode(char *cmds, char *result_ext)
+{
+	int len = strlen(cmds);
+	if(len<= 0)
+		return NOT_WILDCARD;
+
+	//RETR *.jpg-->"*.jpg"-->all jpg files
+	//				 "*.*"-->all files
+	if(cmds[0] == '*')
+	{
+		if(len == 1)	//all files
+		{
+			return ALL_FILES;
+		}
+		else if(!strcmp(cmds, "*.*"))	//all files who has extension name
+		{
+			return ALL_EXTENTION_FILES;
+		}
+		else if(len > 2)
+		{
+			if(cmds[1] == '.')
+			{
+				memcpy(result_ext, &cmds[2], sizeof(char)* len-2);
+				if(strstr(result_ext, "."))
+					return NOT_WILDCARD;
+				return SAME_EXTENTION_FILES;
+			}
+		}
+	}
+	return NOT_WILDCARD;
+}
+
+bool is_same_extension(char *name, char *ext)
+{
+	if(ext == NULL || name == NULL)
+		return 0;
+
+	char *ext_find = strrchr(name, '.');
+	if(!ext_find)
+		return 0;
+	ext_find += 1;
+		
+	return strcmp(ext, ext_find) == 0;
+}
+
+bool is_extension(char *name)
+{
+	if(name == NULL)
+		return false;
+	char *ext_find = strrchr(name, '.');
+
+	if(!ext_find)
+		return false;
+	return true;
+}
+

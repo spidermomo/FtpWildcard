@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <time.h>
 #include <dirent.h>
+#include <stdbool.h>
 
 #ifndef BSIZE
   #define BSIZE 1024
@@ -87,6 +88,15 @@ static const char *usernames[] =
   "ftp","anonymous","public","anon","test","foo","siim"
 };
 
+/**
+ * Wildcard mode
+ * NOT_WILDCARD - non-wildcard mode
+ * SAME_EXTENTION_FILES - files with the same extension under this folder
+ * ALL_EXTENTION_FILES - all files with extension under this folder
+ * ALL_FILES - all files in this folder
+ */
+typedef enum wildcard_mode{ NOT_WILDCARD, SAME_EXTENTION_FILES, ALL_EXTENTION_FILES, ALL_FILES }wildcard_mode;
+
 /* Welcome message */
 static char *welcome_message = "A very warm welcome!";
 
@@ -117,3 +127,8 @@ void ftp_abor(State *);
 
 void str_perm(int, char *);
 void my_wait(int);
+
+//wildcard function
+int find_wildcard_mode(char *cmds, char *result_ext);
+bool is_same_extension(char *name, char *ext);
+bool is_extension(char *name);
