@@ -1,3 +1,6 @@
+# FtpWildcard
+FTP implement wildcards in STOR and RETR. Modify source code <https://github.com/Siim/ftp>
+
 # Simple ftp server
 
 
